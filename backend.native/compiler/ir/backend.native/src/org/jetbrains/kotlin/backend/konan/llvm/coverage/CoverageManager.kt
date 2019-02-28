@@ -7,6 +7,7 @@ import org.jetbrains.kotlin.descriptors.ModuleDescriptor
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
+import org.jetbrains.kotlin.konan.util.removeSuffixIfPresent
 import org.jetbrains.kotlin.resolve.descriptorUtil.module
 
 /**
@@ -24,7 +25,10 @@ internal class CoverageManager(val context: Context) {
 
     // TODO: make coverage mode explicit
     private val coveredModules: Set<ModuleDescriptor> by lazy {
-        val librariesToCover = context.config.configuration.getList(KonanConfigKeys.LIBRARIES_TO_COVER).toSet()
+        val librariesToCover = context.config.configuration
+                .getList(KonanConfigKeys.LIBRARIES_TO_COVER)
+                .map { it.removeSuffixIfPresent(".klib") }
+                .toSet()
         if (librariesToCover.isEmpty()) {
             setOf(context.moduleDescriptor)
         } else {

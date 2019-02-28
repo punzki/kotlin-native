@@ -9,6 +9,6 @@ Kotlin/Native has a code coverage support that is based on Clang's
 ### Sample
 
 ### Known issues
-* Coverage information may be inaccurate.
-* Not 
-* Line counts could be 
+* Coverage information may be inaccurate
+* Wrong line counts
+* No Gradle plugin support
