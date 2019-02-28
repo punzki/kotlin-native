@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
 }
@@ -23,11 +25,8 @@ kotlin {
                 entryPoint = "coverage.main"
             }
         }
-//        compilations["main"].extraOpts = mutableListOf()
         binaries.getExecutable("test", DEBUG).apply {
             freeCompilerArgs = mutableListOf(
-                    "-Xtemporary-files-dir=.",
-                    "-Xcoverage",
                     "-Xlibrary-to-cover=${compilations["main"].output.classesDirs.singleFile.absolutePath}"
             )
         }
@@ -39,14 +38,14 @@ tasks.create("createCoverageReport") {
 
     description = "Create coverage report"
 
+    // TODO: use tools from the distribution
     doLast {
         exec {
-//            workingDir = File("$buildDir/gcov")
             commandLine("llvm-profdata", "merge", "default.profraw", "-o", "program.profdata")
         }
         exec {
-//            workingDir = File("$buildDir/gcov")
-            commandLine("llvm-cov", "show", "$buildDir/bin/macos/testDebugExecutable/test.kexe", "-instr-profile", "program.profdata")
+            val testDebugBinary = kotlin.targets["macos"].let { it as KotlinNativeTarget }.binaries.getExecutable("test", "debug").outputFile
+            commandLine("llvm-cov", "show", "$testDebugBinary", "-instr-profile", "program.profdata")
         }
     }
 }

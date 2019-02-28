@@ -6,6 +6,8 @@ import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.llvm.symbolName
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.name
+import org.jetbrains.kotlin.ir.declarations.path
+import org.jetbrains.kotlin.konan.file.File
 
 private fun RegionKind.toLLVMCoverageRegionKind(): LLVMCoverageRegionKind = when (this) {
     RegionKind.Code -> LLVMCoverageRegionKind.CODE
@@ -40,7 +42,6 @@ internal class LLVMCoverageWriter(
         val filesIndex = filesRegionsInfo.mapIndexed { index, fileRegionInfo -> fileRegionInfo.file to index }.toMap()
 
         val coverageGlobal = memScoped {
-            // TODO: Each record contains char* which should be freed.
             val (functionMappingRecords, functionCoverages) = filesRegionsInfo.flatMap { it.functions }.map { functionRegions ->
                 val regions = (functionRegions.regions.values).map { region ->
                     alloc<LLVMCoverageRegion>().populateFrom(region, functionRegions.regionEnumeration.getValue(region), filesIndex).ptr
@@ -55,12 +56,16 @@ internal class LLVMCoverageWriter(
 
                 Pair(functionMappingRecord, functionCoverage)
             }.unzip()
+            val (filenames, fileIds) = filesIndex.entries.toList().map { File(it.key.path).absolutePath to it.value }.unzip()
+            val retval = LLVMCoverageEmit(module, functionMappingRecords.toCValues(), functionMappingRecords.size.signExtend(),
+                    filenames.toCStringArray(this), fileIds.toIntArray().toCValues(), fileIds.size.signExtend(),
+                    functionCoverages.map { it.ptr }.toCValues(), functionCoverages.size.signExtend())!!
 
-            val (filenames, fileIds) = filesIndex.entries.toList().map { it.key.name to it.value }.unzip()
+            // TODO: Is there a better way to cleanup fields of T* type in `memScoped`?
+            functionCoverages.forEach { LLVMFunctionCoverageDispose(it.ptr) }
 
-            LLVMCoverageEmit(module, functionMappingRecords.toCValues(), functionMappingRecords.size.signExtend(),
-                        filenames.toCStringArray(this), fileIds.toIntArray().toCValues(), fileIds.size.signExtend(),
-                        functionCoverages.map { it.ptr }.toCValues(), functionCoverages.size.signExtend())!!
+            retval
+
         }
         context.llvm.usedGlobals.add(coverageGlobal)
     }
