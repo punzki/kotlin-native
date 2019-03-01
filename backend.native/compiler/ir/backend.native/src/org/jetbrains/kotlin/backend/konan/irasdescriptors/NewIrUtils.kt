@@ -19,10 +19,12 @@ import org.jetbrains.kotlin.ir.types.classifierOrFail
 import org.jetbrains.kotlin.ir.types.isMarkedNullable
 import org.jetbrains.kotlin.ir.util.explicitParameters
 import org.jetbrains.kotlin.ir.util.isFunction
+import org.jetbrains.kotlin.ir.util.isKFunction
 import org.jetbrains.kotlin.ir.util.isSuspendFunction
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.util.OperatorNameConventions
 
 val IrConstructor.constructedClass get() = this.parent as IrClass
 
@@ -182,3 +184,17 @@ val IrDeclaration.file: IrFile get() = parent.let {
         else -> TODO("Unexpected declaration parent")
     }
 }
+
+private val inlineConstructor = FqName("kotlin.native.internal.InlineConstructor")
+
+internal val IrFunction.isInlineConstructor get() = annotations.hasAnnotation(inlineConstructor)
+
+internal val IrFunction.needsInlining get() = isInlineConstructor || (this.isInline && !this.isExternal)
+
+internal val IrFunction.isFunctionInvoke: Boolean
+    get() {
+        val dispatchReceiver = dispatchReceiverParameter ?: return false
+        assert(!dispatchReceiver.type.isKFunction())
+
+        return dispatchReceiver.type.isFunction() && this.name == OperatorNameConventions.INVOKE
+    }
