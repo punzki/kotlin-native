@@ -128,11 +128,11 @@ class KonanHelperProvider(lldb.SBSyntheticValueProvider):
             evaluate("(int)Konan_DebugGetFieldType({}, {})".format(self._ptr, child)).GetValueAsUnsigned()
             for child in range(self._children_count)]
         self._children_type_addresses = [
-            long(evaluate("(void *)Konan_DebugGetFieldAddress({}, {})".format(self._ptr, index)).GetValue(), 0) for
+            int(evaluate("(void *)Konan_DebugGetFieldAddress({}, {})".format(self._ptr, index)).GetValue(), 0) for
             index in range(self._children_count)]
 
     def _read_string(self, expr, error):
-        return self._process.ReadCStringFromMemory(long(evaluate(expr).GetValue(), 0), 0x1000, error)
+        return self._process.ReadCStringFromMemory(int(evaluate(expr).GetValue(), 0), 0x1000, error)
 
     def _read_value(self, index):
         value_type = self._children_types[index]
