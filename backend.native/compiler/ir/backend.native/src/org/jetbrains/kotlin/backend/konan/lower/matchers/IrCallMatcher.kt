@@ -1,4 +1,9 @@
-package org.jetbrains.kotlin.backend.konan.lower.matchers
+/*
+ * Copyright 2010-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license
+ * that can be found in the license/LICENSE.txt file.
+ */
+
+package org.jetbrains.kotlin.backend.common.lower.matchers
 
 import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
@@ -11,29 +16,28 @@ internal interface IrCallMatcher : (IrCall) -> Boolean
  * IrCallMatcher that puts restrictions only on its callee.
  */
 internal class SimpleCalleeMatcher(
-        restrictions: IrFunctionMatcherContainer.() -> Unit
+    restrictions: IrFunctionMatcherContainer.() -> Unit
 ) : IrCallMatcher {
 
-    private val calleeRestriction: IrFunctionMatcher
-            = createIrFunctionRestrictions(restrictions)
+    private val calleeRestriction: IrFunctionMatcher = createIrFunctionRestrictions(restrictions)
 
     override fun invoke(call: IrCall) = calleeRestriction(call.symbol.owner)
 }
 
 internal class IrCallExtensionReceiverMatcher(
-        val restriction: (IrExpression?) -> Boolean
+    val restriction: (IrExpression?) -> Boolean
 ) : IrCallMatcher {
     override fun invoke(call: IrCall) = restriction(call.extensionReceiver)
 }
 
 internal class IrCallDispatchReceiverMatcher(
-        val restriction: (IrExpression?) -> Boolean
+    val restriction: (IrExpression?) -> Boolean
 ) : IrCallMatcher {
     override fun invoke(call: IrCall) = restriction(call.dispatchReceiver)
 }
 
 internal class IrCallOriginMatcher(
-        val restriction: (IrStatementOrigin?) -> Boolean
+    val restriction: (IrStatementOrigin?) -> Boolean
 ) : IrCallMatcher {
     override fun invoke(call: IrCall) = restriction(call.origin)
 }
@@ -47,20 +51,20 @@ internal open class IrCallMatcherContainer : IrCallMatcher {
     }
 
     fun extensionReceiver(restriction: (IrExpression?) -> Boolean) =
-            add(IrCallExtensionReceiverMatcher(restriction))
+        add(IrCallExtensionReceiverMatcher(restriction))
 
     fun origin(restriction: (IrStatementOrigin?) -> Boolean) =
-            add(IrCallOriginMatcher(restriction))
+        add(IrCallOriginMatcher(restriction))
 
     fun callee(restrictions: IrFunctionMatcherContainer.() -> Unit) {
         add(SimpleCalleeMatcher(restrictions))
     }
 
     fun dispatchReceiver(restriction: (IrExpression?) -> Boolean) =
-            add(IrCallDispatchReceiverMatcher(restriction))
+        add(IrCallDispatchReceiverMatcher(restriction))
 
     override fun invoke(call: IrCall) = matchers.all { it(call) }
 }
 
 internal fun createIrCallMatcher(restrictions: IrCallMatcherContainer.() -> Unit) =
-        IrCallMatcherContainer().apply(restrictions)
+    IrCallMatcherContainer().apply(restrictions)

@@ -1,34 +1,43 @@
 /*
- * Copyright 2010-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license
- * that can be found in the LICENSE file.
+ * Copyright 2010-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license
+ * that can be found in the license/LICENSE.txt file.
  */
 
-package org.jetbrains.kotlin.backend.konan.lower.loops
+package org.jetbrains.kotlin.backend.common.lower.loops
 
+import org.jetbrains.kotlin.backend.common.CommonBackendContext
 import org.jetbrains.kotlin.backend.common.FileLoweringPass
 import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
 import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.common.lower.irIfThen
-import org.jetbrains.kotlin.backend.konan.Context
+import org.jetbrains.kotlin.backend.common.phaser.makeIrFilePhase
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
-import org.jetbrains.kotlin.ir.expressions.impl.*
+import org.jetbrains.kotlin.ir.expressions.impl.IrCompositeImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
 import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
-import org.jetbrains.kotlin.ir.types.*
-import org.jetbrains.kotlin.ir.util.*
-import org.jetbrains.kotlin.ir.visitors.*
+import org.jetbrains.kotlin.ir.types.toKotlinType
+import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
+import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.util.OperatorNameConventions
 
-/**  This lowering pass optimizes for-loops.
+val forLoopsPhase = makeIrFilePhase(
+    ::ForLoopsLowering,
+    name = "ForLoopsLowering",
+    description = "For loops lowering"
+)
+
+/**
+ * This lowering pass optimizes for-loops.
  *
- *   Replace iteration over ranges (X.indices, a..b, etc.) and arrays with
- *   simple while loop over primitive induction variable.
+ * Replace iteration over ranges (X.indices, a..b, etc.) and arrays with
+ * simple while loop over primitive induction variable.
  */
-internal class ForLoopsLowering(val context: Context) : FileLoweringPass {
+internal class ForLoopsLowering(val context: CommonBackendContext) : FileLoweringPass {
 
     private val headerInfoBuilder = HeaderInfoBuilder(context)
 
@@ -47,10 +56,10 @@ internal class ForLoopsLowering(val context: Context) : FileLoweringPass {
 }
 
 private class RangeLoopTransformer(
-        val context: Context,
-        val oldLoopToNewLoop: MutableMap<IrLoop, IrLoop>,
-        headerInfoBuilder: HeaderInfoBuilder)
-    : IrElementTransformerVoidWithContext() {
+    val context: CommonBackendContext,
+    val oldLoopToNewLoop: MutableMap<IrLoop, IrLoop>,
+    headerInfoBuilder: HeaderInfoBuilder
+) : IrElementTransformerVoidWithContext() {
 
     private val symbols = context.ir.symbols
     private val iteratorToLoopHeader = mutableMapOf<IrVariableSymbol, ForLoopHeader>()
@@ -75,14 +84,15 @@ private class RangeLoopTransformer(
     private fun processHeader(variable: IrVariable): IrStatement? {
         assert(variable.symbol !in iteratorToLoopHeader)
         val forLoopInfo = headerProcessor.processHeader(variable)
-                ?: return null
+            ?: return null
         iteratorToLoopHeader[variable.symbol] = forLoopInfo
         return IrCompositeImpl(
-                variable.startOffset,
-                variable.endOffset,
-                context.irBuiltIns.unitType,
-                null,
-                forLoopInfo.declarations)
+            variable.startOffset,
+            variable.endOffset,
+            context.irBuiltIns.unitType,
+            null,
+            forLoopInfo.declarations
+        )
     }
 
     /**
@@ -129,7 +139,7 @@ private class RangeLoopTransformer(
                 }
             }
             val loopHeader = getLoopHeader(loop.condition)
-                    ?: return super.visitWhileLoop(loop)
+                ?: return super.visitWhileLoop(loop)
             val newLoop = loopHeader.buildBody(this, loop, newBody)
             oldLoopToNewLoop[loop] = newLoop
             // Build a check for an empty progression before the loop.
@@ -148,15 +158,17 @@ private class RangeLoopTransformer(
         val irBuiltIns = context.irBuiltIns
         val minConst = when (progressionType) {
             ProgressionType.INT_PROGRESSION -> IrConstImpl
-                    .int(startOffset, endOffset, irBuiltIns.intType, Int.MIN_VALUE)
+                .int(startOffset, endOffset, irBuiltIns.intType, Int.MIN_VALUE)
             ProgressionType.CHAR_PROGRESSION -> IrConstImpl
-                    .char(startOffset, endOffset, irBuiltIns.charType, 0.toChar())
+                .char(startOffset, endOffset, irBuiltIns.charType, 0.toChar())
             ProgressionType.LONG_PROGRESSION -> IrConstImpl
-                    .long(startOffset, endOffset, irBuiltIns.longType, Long.MIN_VALUE)
+                .long(startOffset, endOffset, irBuiltIns.longType, Long.MIN_VALUE)
         }
-        val compareTo = symbols.getBinaryOperator(OperatorNameConventions.COMPARE_TO,
-                forLoopHeader.bound.type.toKotlinType(),
-                minConst.type.toKotlinType())
+        val compareTo = symbols.getBinaryOperator(
+            OperatorNameConventions.COMPARE_TO,
+            forLoopHeader.bound.type.toKotlinType(),
+            minConst.type.toKotlinType()
+        )
         return irCall(irBuiltIns.greaterFunByOperandType[irBuiltIns.int]?.symbol!!).apply {
             val compareToCall = irCall(compareTo).apply {
                 dispatchReceiver = irGet(forLoopHeader.bound)
@@ -172,12 +184,18 @@ private class RangeLoopTransformer(
         val comparingBuiltIn = loopHeader.comparingFunction(builtIns)
 
         // Check if inductionVariable <= last (or >= in case of downTo).
-        val compareTo = symbols.getBinaryOperator(OperatorNameConventions.COMPARE_TO,
-                loopHeader.inductionVariable.type.toKotlinType(),
-                loopHeader.last.type.toKotlinType())
+        // TODO: Use comparingBuiltIn directly
+        val compareTo = symbols.getBinaryOperator(
+            OperatorNameConventions.COMPARE_TO,
+            loopHeader.inductionVariable.type.toKotlinType(),
+            loopHeader.last.type.toKotlinType()
+        )
 
         val check = irCall(comparingBuiltIn).apply {
-            putValueArgument(0, irCallOp(compareTo.owner, irGet(loopHeader.inductionVariable), irGet(loopHeader.last)))
+            putValueArgument(
+                0,
+                irCallOp(compareTo, compareTo.owner.returnType, irGet(loopHeader.inductionVariable), irGet(loopHeader.last))
+            )
             putValueArgument(1, irInt(0))
         }
 
@@ -191,12 +209,12 @@ private class RangeLoopTransformer(
         }
     }
 
-    private fun getLoopHeader(oldCondition: IrExpression):  ForLoopHeader? {
+    private fun getLoopHeader(oldCondition: IrExpression): ForLoopHeader? {
         if (oldCondition !is IrCall || oldCondition.origin != IrStatementOrigin.FOR_LOOP_HAS_NEXT) {
             return null
         }
         val irIteratorAccess = oldCondition.dispatchReceiver as? IrGetValue
-                ?: throw AssertionError()
+            ?: throw AssertionError()
         // Return null if we didn't lower the corresponding header.
         return iteratorToLoopHeader[irIteratorAccess.symbol]
     }
@@ -206,27 +224,34 @@ private class RangeLoopTransformer(
         val initializer = variable.initializer as IrCall
 
         val iterator = initializer.dispatchReceiver as? IrGetValue
-                ?: throw AssertionError()
+            ?: throw AssertionError()
         val forLoopInfo = iteratorToLoopHeader[iterator.symbol]
-                ?: return null  // If we didn't lower a corresponding header.
+            ?: return null  // If we didn't lower a corresponding header.
+        // TODO: Use PLUS_ASSIGN to increment
         val plusOperator = symbols.getBinaryOperator(
-                OperatorNameConventions.PLUS,
-                forLoopInfo.inductionVariable.type.toKotlinType(),
-                forLoopInfo.step.type.toKotlinType()
+            OperatorNameConventions.PLUS,
+            forLoopInfo.inductionVariable.type.toKotlinType(),
+            forLoopInfo.step.type.toKotlinType()
         )
         if (forLoopInfo is ProgressionLoopHeader) {
             forLoopInfo.loopVariable = variable
         }
         return with(context.createIrBuilder(getScopeOwnerSymbol(), initializer.startOffset, initializer.endOffset)) {
             variable.initializer = forLoopInfo.initializeLoopVariable(symbols, this)
-            val increment = irSetVar(forLoopInfo.inductionVariable, irCallOp(plusOperator.owner,
+            val increment = irSetVar(
+                forLoopInfo.inductionVariable.symbol, irCallOp(
+                    plusOperator, plusOperator.owner.returnType,
                     irGet(forLoopInfo.inductionVariable),
-                    irGet(forLoopInfo.step)))
-            IrCompositeImpl(variable.startOffset,
-                    variable.endOffset,
-                    context.irBuiltIns.unitType,
-                    IrStatementOrigin.FOR_LOOP_NEXT,
-                    listOf(variable, increment))
+                    irGet(forLoopInfo.step)
+                )
+            )
+            IrCompositeImpl(
+                variable.startOffset,
+                variable.endOffset,
+                context.irBuiltIns.unitType,
+                IrStatementOrigin.FOR_LOOP_NEXT,
+                listOf(variable, increment)
+            )
         }
     }
 }
